@@ -1,4 +1,4 @@
-# CCQR
+# Conformalized Composite Quantile Regression (CCQR)
 
 `ccqr` is a small, learner-agnostic Python implementation of Composite
 Conformalized Quantile Regression.  It contains the implementation used by the
