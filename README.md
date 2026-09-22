@@ -19,7 +19,7 @@ calibration sample is kept untouched until the selected construction is fit.
 python -m pip install .
 ```
 
-For the QRF reproduction example:
+For the QRF examples:
 
 ```bash
 python -m pip install ".[examples]"
@@ -31,6 +31,41 @@ For development:
 python -m pip install -e ".[test,examples]"
 python -m pytest
 ```
+
+## Toy notebook
+
+[Run the complete toy example](examples/toy_ccqr.ipynb) to generate a seeded
+one-dimensional heteroscedastic dataset, select CCQR(d,w), calibrate the
+intervals, and compare them with ordinary CQR using the same QRF base learner.
+The notebook includes executed results and a prediction-interval plot, so it
+can also be read directly on GitHub.
+
+From the repository root:
+
+```bash
+python -m pip install -e ".[examples,notebook]"
+python -m jupyterlab examples/toy_ccqr.ipynb
+```
+
+Select **Restart Kernel and Run All Cells** to reproduce the example. It
+generates all data locally with seed 0; no data download or research-project
+files are required. Proper-training, calibration, and test sizes are
+1,000, 1,000, and 5,000, respectively. Only proper-training data enter the
+five-fold selection step. The QRF settings are fixed; its hyperparameters
+are not tuned.
+
+To execute the notebook without opening JupyterLab and refresh its saved
+outputs and PNG:
+
+```bash
+python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=300 examples/toy_ccqr.ipynb
+```
+
+![CQR and CCQR prediction intervals on the toy data](examples/toy_ccqr_intervals.png)
+
+The metrics describe one simulation draw, not a repeated-simulation claim of
+superiority. The 90% target is marginal coverage; realized coverage on one
+test set and coverage conditional on a particular feature value can differ.
 
 ## Base learner interface
 
@@ -79,6 +114,9 @@ choice = select_ccqr(
     maxiter=300,
 )
 
+final_model = model_factory(seed=0)
+final_model.fit(X_proper, y_proper)
+
 predictor = ConformalLengthWeightedCQR(
     final_model,
     lower_grid=choice["lower_grid"],
@@ -118,6 +156,7 @@ The repository-level experiment runner in the accompanying research project
 imports this package directly.  A one-seed QRF check is recorded in
 `REPRODUCIBILITY.md`.
 
-This repository intentionally contains the method and its tests, not datasets
-or full experiment outputs.  Add an explicit open-source license before making
+This repository contains the method, its tests, and the self-contained toy
+notebook, but not the full research datasets or experiment outputs.
+Add an explicit open-source license before making
 the repository public.
