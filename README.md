@@ -1,95 +1,43 @@
 # Conformalized Composite Quantile Regression (CCQR)
 
-`ccqr` is a small, learner-agnostic Python implementation of Composite
-Conformalized Quantile Regression.  It contains the implementation used by the
-current synthetic experiments:
+`ccqr` constructs prediction intervals by combining conditional quantiles and
+applying split-conformal calibration. It supports three selection modes:
 
-- ordinary split CQR;
-- `CCQR(d)`, which selects the quantile range from out-of-fold (OOF)
-  predictions;
-- `CCQR(w)`, which learns shared convex weights for symmetric quantile pairs;
-- `CCQR(d,w)`, which jointly selects the range and pair weights.
+| Method | `selection` | Selected parameters |
+|---|---|---|
+| CCQR(d) | `"d"` | Quantile range, with uniform weights |
+| CCQR(w) | `"w"` | Quantile-pair weights at a fixed range |
+| CCQR(d,w) | `"both"` | Quantile range and pair weights |
 
-Selection uses only proper-training OOF predictions.  The final conformal
-calibration sample is kept untouched until the selected construction is fit.
+Selection uses out-of-fold predictions on the proper-training set. A separate
+calibration set determines the final interval correction. Standard split CQR
+is also available through `StandardCQR`.
 
 ## Installation
+
+Requires Python 3.10 or later. Download or clone this repository, then run
+from its root directory:
 
 ```bash
 python -m pip install .
 ```
 
-For the QRF examples:
+For the quantile random forest example below:
 
 ```bash
 python -m pip install ".[examples]"
 ```
 
-For development:
-
-```bash
-python -m pip install -e ".[test,examples]"
-python -m pytest
-```
-
-## Toy notebook
-
-[Run the complete toy example](examples/toy_ccqr.ipynb) to generate a seeded
-one-dimensional heteroscedastic dataset, select CCQR(d,w), calibrate the
-intervals, and compare them with ordinary CQR using the same QRF base learner.
-The notebook includes executed results and a prediction-interval plot, so it
-can also be read directly on GitHub.
-
-From the repository root:
-
-```bash
-python -m pip install -e ".[examples,notebook]"
-python -m jupyterlab examples/toy_ccqr.ipynb
-```
-
-Select **Restart Kernel and Run All Cells** to reproduce the example. It
-generates all data locally with seed 0; no data download or research-project
-files are required. Proper-training, calibration, and test sizes are
-1,000, 1,000, and 5,000, respectively. Only proper-training data enter the
-five-fold selection step. The QRF settings are fixed; its hyperparameters
-are not tuned.
-
-To execute the notebook without opening JupyterLab and refresh its saved
-outputs and PNG:
-
-```bash
-python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=300 examples/toy_ccqr.ipynb
-```
-
-![CQR and CCQR prediction intervals on the toy data](examples/toy_ccqr_intervals.png)
-
-The metrics describe one simulation draw, not a repeated-simulation claim of
-superiority. The 90% target is marginal coverage; realized coverage on one
-test set and coverage conditional on a particular feature value can differ.
-
-## Base learner interface
-
-CCQR accepts a model factory that returns a fresh quantile learner exposing
-
-```python
-model.fit(X, y)
-model.predict(X, quantiles=[0.05, 0.10, 0.90, 0.95])
-```
-
-and returning an array of shape `(n_samples, n_quantiles)` in the requested
-quantile order.
-
 ## Basic usage
+
+Start with separate proper-training, calibration, and test sets. The example
+uses `X_proper`, `y_proper`, `X_calibration`, `y_calibration`, and `X_test`.
 
 ```python
 import numpy as np
 from quantile_forest import RandomForestQuantileRegressor
-from ccqr import (
-    ConformalLengthWeightedCQR,
-    select_ccqr,
-)
+from ccqr import ConformalLengthWeightedCQR, select_ccqr
 
-d_candidates = np.arange(0.0, 0.41, 0.05)
 
 def model_factory(seed):
     return RandomForestQuantileRegressor(
@@ -100,18 +48,17 @@ def model_factory(seed):
         n_jobs=-1,
     )
 
+
 choice = select_ccqr(
     model_factory,
     X_proper,
     y_proper,
-    d_candidates,
-    selection="both",  # "d", "w", or "both"
-    K=5,                # cross-fitting folds
+    bandwidths=np.arange(0.0, 0.41, 0.05),
+    selection="both",
+    K=5,
     n_quantiles=9,
     alpha=0.1,
     random_state=0,
-    n_random_starts=8,
-    maxiter=300,
 )
 
 final_model = model_factory(seed=0)
@@ -128,35 +75,67 @@ predictor = ConformalLengthWeightedCQR(
 intervals = predictor.predict(X_test)
 ```
 
-The same selector covers all three CCQR variants:
+`intervals` has shape `(n_test, 2)`, with lower and upper endpoints in its
+columns. Use `selection="d"` to select only the range, or
+`selection="w", d=0.4` to select weights at a fixed range.
 
-```python
-d_choice = select_ccqr(..., selection="d")
-w_choice = select_ccqr(..., selection="w", d=0.4)
-dw_choice = select_ccqr(..., selection="both")
+`K` is the number of cross-fitting folds; `n_quantiles` is the number of
+quantile pairs per nonzero range. `alpha=0.1` sets the nominal marginal coverage
+to 90%. All selection modes return `bandwidth`, `lower_grid`, `upper_grid`,
+`weights`, `objective`, `oof_qhat`, and per-candidate diagnostics in `candidates`.
+
+## Toy example
+
+The [toy notebook](examples/toy_ccqr.ipynb) generates heteroscedastic data and
+compares CQR with CCQR(d,w) using a quantile random forest. It includes saved
+outputs and the interval plot below.
+
+```bash
+python -m pip install -e ".[examples,notebook]"
+python -m jupyterlab examples/toy_ccqr.ipynb
 ```
 
-All modes return the same core fields: `bandwidth`, `lower_grid`,
-`upper_grid`, `weights`, `objective`, `oof_qhat`, and `candidates`.
+Run all cells to reproduce the example. It uses seed 0, with 1,000
+proper-training, 1,000 calibration, and 5,000 test observations. Data are
+generated in the notebook; no download is needed.
 
-The optimizer includes all prefix-uniform initializations and eight
-`Dirichlet(1, ..., 1)` starts by default.  For joint selection, candidate
-bandwidth number `i` uses RNG seed `random_state + i`.
+![CQR and CCQR prediction intervals](examples/toy_ccqr_intervals.png)
 
-If OOF predictions have already been computed, use the lower-level
-`select_ccqr_from_oof` function. It accepts the OOF matrix and its quantile
-levels directly and therefore has no `K` argument.
+These results are from one simulated dataset. The nominal 90% coverage is
+marginal, not conditional on each feature value.
 
-Calibration always uses the finite-sample split-conformal order statistic; no
-calibration-rule option is exposed.
+## Base learners and selection
 
-## Reproducibility check
+A model factory must return a fresh learner with these methods:
 
-The repository-level experiment runner in the accompanying research project
-imports this package directly.  A one-seed QRF check is recorded in
-`REPRODUCIBILITY.md`.
+```python
+model.fit(X, y)
+model.predict(X, quantiles=[0.05, 0.10, 0.90, 0.95])
+```
 
-This repository contains the method, its tests, and the self-contained toy
-notebook, but not the full research datasets or experiment outputs.
-Add an explicit open-source license before making
-the repository public.
+Predictions must have shape `(n_samples, n_quantiles)` and follow the requested
+quantile order. The learner is fitted separately within each cross-fitting fold.
+
+For existing OOF predictions, use `select_ccqr_from_oof`. It takes a prediction
+matrix, quantile levels, and proper-training responses, with no fold-count
+argument. Calibration uses the finite-sample split-conformal order statistic.
+
+Weight optimization uses prefix-uniform initializations and eight
+Dirichlet(1, ..., 1) starts, with up to 300 SLSQP iterations by default.
+Joint candidate `i` uses optimizer seed `random_state + i` (zero-based).
+
+## Tests
+
+```bash
+python -m pip install -e ".[test,examples]"
+python -m pytest
+```
+
+A numerical comparison with a reference simulation is documented in
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md). Full experiment datasets and outputs
+are not included in this repository.
+
+## License
+
+CCQR is distributed under the [MIT License](LICENSE). Third-party libraries
+and external datasets remain subject to their own licenses and terms of use.
